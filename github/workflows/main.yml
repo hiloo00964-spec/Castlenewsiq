@@ -1,0 +1,11 @@
+- name: Install
+        run: pip install requests google-generativeai
+      - name: Run
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          FB_TOKEN: ${{ secrets.FB_TOKEN }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          NEWS_CHANNEL: ${{ secrets.NEWS_CHANNEL }}
+          JOBS_CHANNEL: ${{ secrets.JOBS_CHANNEL }}
+          GMY: ${{ secrets.GMY }}
+        run: python script.py
