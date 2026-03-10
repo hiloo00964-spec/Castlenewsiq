@@ -1,8 +1,8 @@
 name: Global Bot Pro
 on:
   schedule:
-    - cron: '0 * * * *' # تشغيل كل ساعة (موفر جداً للدقائق)
-  workflow_dispatch: # زر تشغيل يدوي
+    - cron: '0 * * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -20,7 +20,7 @@ jobs:
           python-version: '3.9'
 
       - name: Install Libraries
-        run: pip install requests google-generativeai
+        run: pip install requests google-genai
 
       - name: Execute Bot
         env:
