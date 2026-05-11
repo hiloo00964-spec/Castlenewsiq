@@ -2,7 +2,8 @@ name: News Bot V3
 
 on:
   schedule:
-    - cron: '0 */2 6-20 * * *' # كل ساعتين من 9 صباحاً لـ 11 ليلاً بتوقيت العراق
+    # تم تعديل السطر بالأسفل ليكون متوافقاً مع معايير GitHub
+    - cron: '0 */2 * * *' 
   workflow_dispatch:
 
 jobs:
