@@ -2,7 +2,6 @@ name: News Bot V3
 
 on:
   schedule:
-    # تم تعديل السطر بالأسفل ليكون متوافقاً مع معايير GitHub
     - cron: '0 */2 * * *' 
   workflow_dispatch:
 
@@ -29,6 +28,9 @@ jobs:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_TOKEN: ${{ secrets.FB_TOKEN }}
           MY_CHANNEL_LINK: ${{ secrets.MY_CHANNEL_LINK }}
+          # السيكرتس الجديدة لثريدز
+          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+          THREADS_USER_ID: ${{ secrets.THREADS_USER_ID }}
         run: python script.py
 
       - name: Save History
