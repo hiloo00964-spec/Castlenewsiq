@@ -25,43 +25,50 @@ BLACKLIST = [
 ]
 
 def clean_news_text(text):
-    """تنظيف ذكي: يحذف أسماء القنوات والروابط ويبقي الهاشتاقات العامة"""
-    # 1. حذف الروابط ومعرفات التليجرام
+    """تنظيف ذكي: يحذف المصادر والهاشتاقات الخاصة بالمنافسين عبر جيميناي"""
+    # 1. تنظيف أولي للروابط ومعرفات التليجرام
     text = re.sub(r'http\S+|t\.me\/\S+|@\S+', '', text)
     
-    # 2. حذف أسماء المصادر من القائمة السوداء (سواء كانت نص أو هاشتاق)
-    for word in BLACKLIST:
-        text = re.sub(rf'#?{word}\w*', '', text, flags=re.IGNORECASE)
-    
-    # 3. تنظيف الشوائب عبر جيميناي (بدون تغيير الصياغة)
+    # 2. استخدام جيميناي لتنظيف الهاشتاقات التابعة للمصادر بدقة
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GMY_API_KEY}"
-        prompt = f"قم بحذف الروابط وأي توقيع لقنوات إخبارية من النص التالي فقط. ممنوع تغيير صياغة الخبر أو حذف الهاشتاقات العامة مثل #العراق، حافظ على النص الأصلي:\n\n{text}"
+        
+        # الأمر (Prompt) المعدل لحذف هاشتاقات المصادر تحديداً
+        prompt = (
+            "أنت محرر أخبار محترف. قم بمعالجة النص التالي:\n"
+            "1. احذف أي هاشتاق يشير لاسم المصدر (مثل #إندبندنت_عراقية، #العربية، #سكاي_نيوز).\n"
+            "2. احذف أي جملة في نهاية الخبر تشير للمصدر الأصلي.\n"
+            "3. حافظ على محتوى الخبر الأصلي كاملاً دون تغيير صياغته.\n"
+            "4. حافظ على الهاشتاقات العامة فقط مثل #العراق أو #بغداد.\n\n"
+            f"النص:\n{text}"
+        )
+        
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        res = requests.post(url, json=payload, timeout=10)
+        res = requests.post(url, json=payload, timeout=15)
         data = res.json()
         if 'candidates' in data:
             text = data['candidates'][0]['content']['parts'][0]['text'].strip()
     except:
-        pass
+        # في حال فشل Gemini، نستخدم التنظيف اليدوي من القائمة السوداء
+        for word in BLACKLIST:
+            text = re.sub(rf'#?{word}\w*', '', text, flags=re.IGNORECASE)
     
     return re.sub(r'\s+', ' ', text).strip()
 
 def is_work_time():
+    # توقيت العراق (UTC+3)
     current_hour = (datetime.utcnow().hour + 3) % 24
     return 9 <= current_hour <= 23
 
 def post_to_facebook(message):
-    """نشر للفيسبوك مع كاشف أخطاء تفصيلي"""
     try:
         url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/feed"
         payload = {'message': message, 'access_token': FB_PAGE_TOKEN}
         r = requests.post(url, data=payload, timeout=10)
-        result = r.json()
         if r.status_code == 200:
             print("✅ Facebook: تم النشر بنجاح")
         else:
-            print(f"❌ Facebook Error {r.status_code}: {result.get('error', {}).get('message', 'Unknown Error')}")
+            print(f"❌ Facebook Error: {r.text}")
     except Exception as e:
         print(f"⚠️ FB Connection Error: {e}")
 
@@ -77,6 +84,7 @@ def post_to_telegram(text):
 def main():
     if not os.path.exists(DB_FILE):
         with open(DB_FILE, 'w', encoding='utf-8') as f: f.write("INIT\n")
+    
     if not is_work_time():
         print("🌙 خارج وقت العمل (9ص - 11م)")
         return
@@ -87,9 +95,11 @@ def main():
     for src in SOURCES:
         try:
             res = requests.get(f"https://t.me/s/{src}", timeout=15)
+            # استخراج الرسائل
             items = re.findall(r'<div class="tgme_widget_message_wrap[^>]*>(.*?)</div>\s*</div>\s*</div>', res.text, re.DOTALL)
             
             for item in reversed(items[-5:]):
+                # تخطي المنشورات التي تحتوي صور أو فيديو (حسب طلبك السابق)
                 if 'tgme_widget_message_photo' in item or 'tgme_widget_message_video' in item:
                     continue
                 
@@ -102,10 +112,13 @@ def main():
                 sig = raw_text[:80]
                 if sig in history: continue
                 
+                # عملية التنظيف الجديدة
                 clean_text = clean_news_text(raw_text)
+                
                 is_urgent = any(word in raw_text for word in ["عاجل", "الآن"])
                 header = "🚨 <b>عاجل</b>" if is_urgent else "📌 <b>خبر</b>"
                 
+                # تنسيق الرسائل
                 tg_msg = f"{header}\n\n<blockquote>{clean_text}</blockquote>\n\n✅ <b>للمتابعة اضغط اشتراك:</b>\n{MY_CHANNEL_LINK}\n\n{FIXED_HASHTAG}"
                 fb_msg = f"{header.replace('<b>','').replace('</b>','')}\n\n{clean_text}\n\n{FIXED_HASHTAG}"
                 
@@ -115,9 +128,11 @@ def main():
                 with open(DB_FILE, 'a', encoding='utf-8') as f:
                     f.write(sig + "\n")
                 history.append(sig)
+                
                 time.sleep(10)
                 break 
-        except:
+        except Exception as e:
+            print(f"⚠️ خطأ في المصدر {src}: {e}")
             continue
 
 if __name__ == "__main__":
