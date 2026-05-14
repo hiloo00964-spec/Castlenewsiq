@@ -2,6 +2,7 @@ name: News Bot V3
 
 on:
   schedule:
+    # تم تعديل السطر بالأسفل ليكون متوافقاً مع معايير GitHub
     - cron: '0 */2 * * *' 
   workflow_dispatch:
 
@@ -18,7 +19,7 @@ jobs:
           python-version: '3.9'
 
       - name: Install Dependencies
-        run: pip install requests tweepy
+        run: pip install requests
 
       - name: Run News Bot
         env:
@@ -28,12 +29,6 @@ jobs:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_TOKEN: ${{ secrets.FB_TOKEN }}
           MY_CHANNEL_LINK: ${{ secrets.MY_CHANNEL_LINK }}
-          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
-          THREADS_USER_ID: ${{ secrets.THREADS_USER_ID }}
-          TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
-          TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
-          TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
-          TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
         run: python script.py
 
       - name: Save History
