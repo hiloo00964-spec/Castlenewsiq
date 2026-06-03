@@ -15,7 +15,7 @@ MY_CHANNEL_LINK = os.getenv('MY_CHANNEL_LINK')
 DB_FILE = "last_news_id.txt"
 FIXED_HASHTAG = "#قلعة_الاخبار_العراقية"
 
-SOURCES = ['Iraq_weather12', 'IRAQ2TV', 'iraqq90', 'iraqi1_news', 'independetiraqia', 'alarabiya_brk', 'SkyNewsArabia_Breaking']
+SOURCES = ['inainaiq', 'IRAQ2TV', 'iraqq90', 'iraqi1_news', 'Iraq_now3', 'ikeeralahda']
 
 # القائمة السوداء المحدثة (تم إضافة الكلمات الجديدة ومعالجة الرموز)
 BLACKLIST = [
