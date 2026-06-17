@@ -5,26 +5,23 @@ import time
 from datetime import datetime
 
 # --- الإعدادات ---
-BOT_TOKEN = os.getenv('BOT_TOKEN')
+# تم حذف متغيرات التليجرام للإبقاء على الفيسبوك فقط
 GMY_API_KEY = os.getenv('GMY')
-MY_CHANNEL = os.getenv('NEWS_CHANNEL')
 FB_PAGE_ID = os.getenv('FB_PAGE_ID')
 FB_PAGE_TOKEN = os.getenv('FB_TOKEN')
-MY_CHANNEL_LINK = os.getenv('MY_CHANNEL_LINK')
 
 DB_FILE = "last_news_id.txt"
 FIXED_HASHTAG = "#قلعة_الاخبار_العراقية"
 
 SOURCES = ['inainaiq', 'IRAQ2TV', 'iraqq90', 'iraqi1_news', 'Iraq_now3', 'ikeeralahda']
 
-# القائمة السوداء المحدثة (تم إضافة الكلمات الجديدة ومعالجة الرموز)
+# القائمة السوداء المحدثة (نفس قائمتك بالضبط)
 BLACKLIST = [
     'سكاي نيوز', 'العربية عاجل', 'اندبندنت_عراقية', 'اندبندنت عربية', 
-    'طقس العراق', 'إندبندنت_عراقية', 'قناة','&rlm;', 'اشترك', '#اندبندنت_عراقية', 'pinned', 'المصدر', 'اطلب دريسك الآن بأعلى جودة
-', 
+    'طقس العراق', 'إندبندنت_عراقية', 'قناة','&rlm;', 'اشترك', '#اندبندنت_عراقية', 'pinned', 'المصدر', 'اطلب دريسك الآن بأعلى جودة\n', 
     'تليكرام', 'تيليجرام', 'الجزيرة',' i24NEWS ', 'بلومبرغ', 'العربية', 'سكاي', 
     'Sky News', 'Al Arabiya', 'Independent', 'شبكة اخبار العراق',
-    '&quot;', '&rlm;', '"' # معالجة الرموز والهاشتاقات الملتصقة
+    '&quot;', '&rlm;', '"' 
 ]
 
 def clean_news_text(text):
@@ -75,15 +72,6 @@ def post_to_facebook(message):
     except Exception as e:
         print(f"⚠️ FB Connection Error: {e}")
 
-def post_to_telegram(text):
-    try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        payload = {'chat_id': MY_CHANNEL, 'text': text, 'parse_mode': 'HTML', 'disable_web_page_preview': True}
-        requests.post(url, data=payload, timeout=10)
-        print("✅ Telegram: تم النشر بنجاح")
-    except:
-        print("❌ Telegram: فشل النشر")
-
 def main():
     if not os.path.exists(DB_FILE):
         with open(DB_FILE, 'w', encoding='utf-8') as f: f.write("INIT\n")
@@ -115,17 +103,16 @@ def main():
                 sig = raw_text[:80]
                 if sig in history: continue
                 
-                # عملية التنظيف الجديدة
+                # عملية التنظيف
                 clean_text = clean_news_text(raw_text)
                 
                 is_urgent = any(word in raw_text for word in ["عاجل", "الآن"])
-                header = "🚨 <b>عاجل</b>" if is_urgent else "📌 <b>خبر</b>"
+                header = "🚨 عاجل" if is_urgent else "📌 خبر"
                 
-                # تنسيق الرسائل
-                tg_msg = f"{header}\n\n<blockquote>{clean_text}</blockquote>\n\n✅ <b>للمتابعة اضغط اشتراك:</b>\n{MY_CHANNEL_LINK}\n\n{FIXED_HASHTAG}"
-                fb_msg = f"{header.replace('<b>','').replace('</b>','')}\n\n{clean_text}\n\n{FIXED_HASHTAG}"
+                # تنسيق رسالة الفيسبوك فقط
+                fb_msg = f"{header}\n\n{clean_text}\n\n{FIXED_HASHTAG}"
                 
-                post_to_telegram(tg_msg)
+                # النشر للفيسبوك فقط
                 post_to_facebook(fb_msg)
                 
                 with open(DB_FILE, 'a', encoding='utf-8') as f:
