@@ -22,11 +22,21 @@ def clean_news_text(text):
     return text.strip()
 
 def post_to_facebook(message):
+    if not message:
+        print("⚠️ النص فارغ، لا يمكن النشر على فيسبوك.")
+        return False
+        
     try:
         url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/feed"
         payload = {'message': message, 'access_token': FB_PAGE_TOKEN}
         r = requests.post(url, data=payload, timeout=15)
-        return r.status_code == 200
+        
+        if r.status_code == 200:
+            return True
+        else:
+            # هنا التعديل: طباعة رسالة الخطأ من فيسبوك لمعرفة السبب بالضبط
+            print(f"❌ رفض من فيسبوك (الكود {r.status_code}): {r.text}")
+            return False
     except Exception as e:
         print(f"⚠️ FB Error: {e}")
         return False
