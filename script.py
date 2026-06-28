@@ -21,31 +21,18 @@ def clean_news_text(text):
     text = re.sub(r'\n\s*\n+', '\n\n', text)
     return text.strip()
 
-def post_to_facebook(message, photo_path=None):
+def post_to_facebook(message):
     try:
-        if photo_path and os.path.exists(photo_path):
-            url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/photos"
-            payload = {'caption': message, 'access_token': FB_PAGE_TOKEN}
-            with open(photo_path, 'rb') as img_file:
-                files = {'source': img_file}
-                r = requests.post(url, data=payload, files=files, timeout=25)
-        else:
-            url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/feed"
-            payload = {'message': message, 'access_token': FB_PAGE_TOKEN}
-            r = requests.post(url, data=payload, timeout=15)
-            
-        if r.status_code == 200:
-            print("✅ Facebook: تم النشر بنجاح")
-            return True
-        else:
-            print(f"❌ Facebook Error: {r.text}")
-            return False
+        url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/feed"
+        payload = {'message': message, 'access_token': FB_PAGE_TOKEN}
+        r = requests.post(url, data=payload, timeout=15)
+        return r.status_code == 200
     except Exception as e:
-        print(f"⚠️ FB Connection Error: {e}")
+        print(f"⚠️ FB Error: {e}")
         return False
 
 def main():
-    print("🚀 بدء تنفيذ البوت...")
+    print("🚀 بدء تنفيذ البوت لفحص آخر 5 منشورات...")
     if not is_work_time():
         print("🌙 خارج وقت العمل.")
         return
@@ -58,41 +45,40 @@ def main():
 
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
-        print(f"🌐 الاتصال بقناة: {SOURCE_CHANNEL}")
         res = requests.get(f"https://t.me/s/{SOURCE_CHANNEL}", headers=headers, timeout=15)
         
-        print(f"🔍 حالة الاستجابة: {res.status_code}")
+        # البحث عن المنشورات
+        matches = re.findall(r'data-post="[^"\/]+/(\d+)"[^>]*>(.*?)</div>\s*</div>\s*</div>', res.text, re.DOTALL)
         
-        # التعديل هنا: استخدام نمط أكثر مرونة للبحث عن المنشورات
-        items = re.findall(r'data-post="[^"\/]+/(\d+)"[^>]*>(.*?)</div>\s*</div>\s*</div>', res.text, re.DOTALL)
-        
-        print(f"📊 عدد المنشورات المكتشفة: {len(items)}")
-        
-        if not items:
-            print("⚠️ تنبيه: لم يتم العثور على أي منشورات. قد يحتاج النمط لتحديث إضافي.")
-            return
-
-        for msg_id, item in reversed(items[-5:]):
+        # أخذ آخر 5 منشورات
+        for msg_id, item in reversed(matches[-5:]):
             sig = msg_id.strip()
+            
             if sig in history:
+                print(f"⏭️ المنشور {sig} مكرر، تخطي...")
                 continue
             
             print(f"📌 معالجة المنشور رقم: {sig}")
             
-            # محاولة استخراج النص من أي وسم يحمل كلاس النص
-            msg_match = re.search(r'class="tgme_widget_message_text[^>]*>(.*?)</div>', item, re.DOTALL)
+            # استخراج النص
+            msg_match = re.search(r'class="tgme_widget_message_text[^"]*">(.*?)</div>', item, re.DOTALL)
             raw_text = re.sub(r'<[^>]+>', '', msg_match.group(1).replace('<br/>', '\n').replace('<br>', '\n')).strip() if msg_match else ""
             
             clean_text = clean_news_text(raw_text)
             
+            # النشر
             if post_to_facebook(clean_text):
+                print(f"✅ تم نشر المنشور {sig} بنجاح!")
                 with open(DB_FILE, 'a', encoding='utf-8') as f:
                     f.write(sig + "\n")
-                print("💾 تم حفظ المعرف بنجاح.")
-                break
-                
+                history.append(sig)
+                time.sleep(5) # انتظار بسيط بين المنشور والآخر
+            else:
+                print(f"❌ فشل نشر المنشور {sig}")
+            
     except Exception as e:
         print(f"⚠️ خطأ عام: {e}")
 
 if __name__ == "__main__":
     main()
+```[cite: 1]
