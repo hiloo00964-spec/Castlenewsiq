@@ -25,7 +25,7 @@ def clean_news_text(text):
 
 def post_to_facebook(message):
     if not message:
-        print("⚠️ النص فارغ، لا يمكن النشر على فيسبوك.")
+        print("⚠️ النص فارغ، لا يمكن النشر.")
         return False
         
     try:
@@ -58,10 +58,27 @@ def main():
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
         res = requests.get(f"https://t.me/s/{SOURCE_CHANNEL}", headers=headers, timeout=15)
         
-        # تعديل جذري: البحث من بداية المنشور وحتى قسم المعلومات (المشاهدات/الوقت) لضمان شمول النص بالكامل
-        matches = re.findall(r'data-post="[^"\/]+/(\d+)"(.*?)<div class="tgme_widget_message_info"', res.text, re.DOTALL)
+        # الطريقة الجديدة: تقطيع الصفحة جراحياً لضمان جلب المنشورات
+        chunks = res.text.split('data-post="')[1:]
+        matches = []
         
-        for msg_id, item in reversed(matches[-5:]):
+        for chunk in chunks:
+            # جلب المعرف
+            id_match = re.match(r'[^"]+/(\d+)"', chunk)
+            if id_match:
+                msg_id = id_match.group(1)
+                # جلب النص الخاص بهذا المعرف فقط
+                text_match = re.search(r'class="tgme_widget_message_text[^"]*">(.*?)</div>', chunk, re.DOTALL)
+                if text_match:
+                    matches.append((msg_id, text_match.group(1)))
+
+        print(f"📊 تم العثور على {len(matches)} منشور نصي في الصفحة.")
+
+        if not matches:
+            print("⚠️ لم يتم العثور على أي منشور، تأكد من القناة.")
+            return
+
+        for msg_id, raw_html_text in reversed(matches[-5:]):
             sig = msg_id.strip()
             
             if sig in history:
@@ -70,14 +87,9 @@ def main():
             
             print(f"📌 معالجة المنشور رقم: {sig}")
             
-            # تعديل جذري: استخراج النص بمرونة أكبر من الكلاس المخصص له
-            msg_match = re.search(r'tgme_widget_message_text[^>]*>(.*?)(?:</div>)', item, re.DOTALL)
-            
-            raw_text = ""
-            if msg_match:
-                # تحويل فواصل الأسطر البرمجية إلى فواصل حقيقية قبل إزالة باقي الوسوم
-                raw_text = msg_match.group(1).replace('<br/>', '\n').replace('<br>', '\n')
-                raw_text = re.sub(r'<[^>]+>', '', raw_text).strip()
+            # تنظيف النص من أكواد الـ HTML
+            raw_text = raw_html_text.replace('<br/>', '\n').replace('<br>', '\n')
+            raw_text = re.sub(r'<[^>]+>', '', raw_text).strip()
             
             clean_text = clean_news_text(raw_text)
             
