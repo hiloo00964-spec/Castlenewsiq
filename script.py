@@ -79,6 +79,6 @@ def main():
     except Exception as e:
         print(f"⚠️ خطأ عام: {e}")
 
-if __name__ == " main ":
+if name == " main ":
     main()
 ```[cite: 1]
