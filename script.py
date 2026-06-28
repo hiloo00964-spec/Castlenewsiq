@@ -17,7 +17,9 @@ def is_work_time():
 def clean_news_text(text):
     if not text:
         return ""
+    # تنظيف الرابط الخاص بالقناة
     text = re.sub(r'للمزيد\s*من\s*الأخبار\s*اشترك\s*في\s*قناتنا:\s*👇\s*\n?https://t\.me/Castlenewsiq', '', text)
+    # تنظيف الفراغات الزائدة
     text = re.sub(r'\n\s*\n+', '\n\n', text)
     return text.strip()
 
@@ -34,7 +36,6 @@ def post_to_facebook(message):
         if r.status_code == 200:
             return True
         else:
-            # هنا التعديل: طباعة رسالة الخطأ من فيسبوك لمعرفة السبب بالضبط
             print(f"❌ رفض من فيسبوك (الكود {r.status_code}): {r.text}")
             return False
     except Exception as e:
@@ -57,7 +58,8 @@ def main():
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
         res = requests.get(f"https://t.me/s/{SOURCE_CHANNEL}", headers=headers, timeout=15)
         
-        matches = re.findall(r'data-post="[^"\/]+/(\d+)"[^>]*>(.*?)</div>\s*</div>\s*</div>', res.text, re.DOTALL)
+        # تعديل جذري: البحث من بداية المنشور وحتى قسم المعلومات (المشاهدات/الوقت) لضمان شمول النص بالكامل
+        matches = re.findall(r'data-post="[^"\/]+/(\d+)"(.*?)<div class="tgme_widget_message_info"', res.text, re.DOTALL)
         
         for msg_id, item in reversed(matches[-5:]):
             sig = msg_id.strip()
@@ -68,8 +70,14 @@ def main():
             
             print(f"📌 معالجة المنشور رقم: {sig}")
             
-            msg_match = re.search(r'class="tgme_widget_message_text[^"]*">(.*?)</div>', item, re.DOTALL)
-            raw_text = re.sub(r'<[^>]+>', '', msg_match.group(1).replace('<br/>', '\n').replace('<br>', '\n')).strip() if msg_match else ""
+            # تعديل جذري: استخراج النص بمرونة أكبر من الكلاس المخصص له
+            msg_match = re.search(r'tgme_widget_message_text[^>]*>(.*?)(?:</div>)', item, re.DOTALL)
+            
+            raw_text = ""
+            if msg_match:
+                # تحويل فواصل الأسطر البرمجية إلى فواصل حقيقية قبل إزالة باقي الوسوم
+                raw_text = msg_match.group(1).replace('<br/>', '\n').replace('<br>', '\n')
+                raw_text = re.sub(r'<[^>]+>', '', raw_text).strip()
             
             clean_text = clean_news_text(raw_text)
             
