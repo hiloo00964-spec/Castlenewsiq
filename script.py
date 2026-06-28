@@ -9,22 +9,20 @@ FB_PAGE_ID = os.getenv('FB_PAGE_ID')
 FB_PAGE_TOKEN = os.getenv('FB_TOKEN')
 
 DB_FILE = "last_news_id.txt"
-SOURCE_CHANNEL = 'Castlenewsiq'  # القناة المستهدفة بالمراقبة
+SOURCE_CHANNEL = 'Castlenewsiq'  # تم التعديل للقناة الجديدة
 
 def is_work_time():
     """فحص وقت العمل بتوقيت العراق (UTC+3) من 9 صباحاً إلى 11 مساءً"""
     current_hour = (datetime.utcnow().hour + 3) % 24
     return 9 <= current_hour <= 23
 
-
 def clean_news_text(text):
-    """تنظيف محلي خالص: يحذف فقط توقيع قناة الأخبار المحدد دون مساس بأي محتوى آخر"""
+    """يحذف فقط توقيع التليجرام الثابت والمحدد بدون لمس أي روابط أو معلومات أخرى"""
     if not text:
         return ""
     
-    # حذف عبارة الاشتراك ورابط قناة الأخبار المحددة بالكامل
-    pattern = r'للمزيد\s*من\s*الأخبار\s*اشترك\s*في\s*قناتنا:\s*👇\s*\n?https://t\.me/Castlenewsiq'
-    text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+    # 1. حذف عبارة الاشتراك ورابط قناة Castlenewsiq المحددة بالكامل
+    text = re.sub(r'للمزيد\s*من\s*الأخبار\s*اشترك\s*في\s*قناتنا:\s*👇\s*\n?https://t\.me/Castlenewsiq', '', text)
     
     # 2. تنظيف الأسطر الفارغة المتكررة الناتجة عن الحذف
     text = re.sub(r'\n\s*\n+', '\n\n', text)
