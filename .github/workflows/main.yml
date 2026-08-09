@@ -48,6 +48,7 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add last_news_id.txt last_instagram_id.txt .news_history_reset
+          git add last_news_id.txt .news_history_reset
+          if [ -f last_instagram_id.txt ]; then git add last_instagram_id.txt; fi
           git diff --cached --quiet || git commit -m "Update news history"
           git push
