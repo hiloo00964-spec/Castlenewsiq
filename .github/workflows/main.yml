@@ -40,12 +40,14 @@ jobs:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_TOKEN: ${{ secrets.FB_TOKEN }}
           MY_CHANNEL_LINK: ${{ secrets.MY_CHANNEL_LINK }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
         run: python script.py
 
       - name: Save History
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add last_news_id.txt .news_history_reset
+          git add last_news_id.txt last_instagram_id.txt .news_history_reset
           git diff --cached --quiet || git commit -m "Update news history"
           git push
