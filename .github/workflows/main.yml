@@ -42,6 +42,7 @@ jobs:
           MY_CHANNEL_LINK: ${{ secrets.MY_CHANNEL_LINK }}
           IG_USER_ID: ${{ secrets.IG_USER_ID }}
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: python script.py
 
       - name: Save History
