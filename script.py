@@ -23,6 +23,11 @@ TEMP_MEDIA_DIR = "tmp_media"
 
 
 def is_work_time():
+    # التشغيل اليدوي من GitHub Actions يتجاوز ساعات العمل.
+    if os.getenv("FORCE_RUN") == "1":
+        return True
+
+    # التشغيل المجدول يبقى ضمن ساعات العمل الطبيعية.
     current_hour = (datetime.utcnow().hour + 3) % 24
     return 9 <= current_hour <= 23
 
