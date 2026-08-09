@@ -5,21 +5,24 @@ import requests
 import time
 from datetime import datetime
 
-# --- الإعدادات الأساسية ---
 
-FB_PAGE_ID = os.getenv('FB_PAGE_ID')
-FB_PAGE_TOKEN = os.getenv('FB_TOKEN')
+# =========================================================
+# الإعدادات الأساسية
+# =========================================================
 
-IG_USER_ID = os.getenv('IG_USER_ID')
-IG_ACCESS_TOKEN = os.getenv('IG_ACCESS_TOKEN')
+FB_PAGE_ID = os.getenv("FB_PAGE_ID")
+FB_PAGE_TOKEN = os.getenv("FB_TOKEN")
+
+IG_USER_ID = os.getenv("IG_USER_ID")
+IG_ACCESS_TOKEN = os.getenv("IG_ACCESS_TOKEN")
 
 DB_FILE = "last_news_id.txt"
 IG_DB_FILE = "last_instagram_id.txt"
 RESET_FILE = ".news_history_reset"
 
-SOURCE_CHANNEL = 'Castlenewsiq'
+SOURCE_CHANNEL = "Castlenewsiq"
 
-# الحد الأقصى 5 منشورات في كل تشغيل (كل ساعتين)
+# الحد الأقصى 5 منشورات في كل تشغيل
 MAX_POSTS_PER_RUN = 5
 
 # 10 ثوانٍ بين المنشورات
@@ -31,154 +34,212 @@ HISTORY_RESET_SECONDS = 48 * 60 * 60
 TEMP_MEDIA_DIR = "tmp_media"
 
 
+# =========================================================
+# وقت التشغيل
+# =========================================================
+
 def is_work_time():
-    # التشغيل اليدوي من GitHub Actions يتجاوز ساعات العمل.
-    if os.getenv("FORCE_RUN") == "1":
+    """
+    التشغيل اليدوي من GitHub Actions يعمل دائمًا
+    حتى لو كان خارج ساعات العمل.
+
+    التشغيل المجدول يبقى ضمن ساعات العمل الطبيعية.
+    """
+
+    # تشغيل يدوي من GitHub Actions
+    if os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch":
+        print("🖐️ تشغيل يدوي: تجاوز ساعات العمل.")
         return True
 
-    # التشغيل المجدول يبقى ضمن ساعات العمل الطبيعية.
+    # دعم FORCE_RUN أيضًا إذا تم استخدامه مستقبلًا
+    if os.getenv("FORCE_RUN") == "1":
+        print("🖐️ FORCE_RUN مفعّل: تجاوز ساعات العمل.")
+        return True
+
     current_hour = (datetime.utcnow().hour + 3) % 24
+
     return 9 <= current_hour <= 23
 
 
+# =========================================================
+# تصفير سجل الأخبار
+# =========================================================
+
 def reset_history_if_needed():
-    """تصفير سجل الأخبار كل 48 ساعة مع حفظ وقت آخر تصفير."""
+    """
+    تصفير سجل Facebook وInstagram كل 48 ساعة.
+    """
+
     now = time.time()
 
     try:
-        with open(RESET_FILE, 'r', encoding='utf-8') as f:
+        with open(RESET_FILE, "r", encoding="utf-8") as f:
             last_reset = float(f.read().strip())
+
     except (FileNotFoundError, ValueError):
         last_reset = 0
 
     if now - last_reset >= HISTORY_RESET_SECONDS:
-        with open(DB_FILE, 'w', encoding='utf-8') as f:
-            f.write('')
 
-        with open(IG_DB_FILE, 'w', encoding='utf-8') as f:
-            f.write('')
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            f.write("")
 
-        with open(RESET_FILE, 'w', encoding='utf-8') as f:
+        with open(IG_DB_FILE, "w", encoding="utf-8") as f:
+            f.write("")
+
+        with open(RESET_FILE, "w", encoding="utf-8") as f:
             f.write(str(now))
 
         print("🧹 تم تصفير سجل الأخبار.")
 
 
+# =========================================================
+# تنظيف النص
+# =========================================================
+
 def clean_news_text(text):
-    """تنظيف Caption وحذف روابط القناة من المنشور."""
+    """
+    تنظيف Caption وحذف روابط Telegram وتوقيع القناة.
+    """
+
     if not text:
         return ""
 
     text = html.unescape(text)
 
-    # تحويل BR إلى أسطر قبل إزالة بقية HTML.
+    # تحويل BR إلى أسطر
     text = re.sub(
-        r'<br\s*/?>',
-        '\n',
+        r"<br\s*/?>",
+        "\n",
         text,
         flags=re.IGNORECASE,
     )
 
-    # حذف روابط Telegram كاملة.
+    # حذف روابط Telegram
     text = re.sub(
-        r'https?://(?:www\.)?t\.me/[A-Za-z0-9_+\-/?.=&%#]+',
-        '',
+        r"https?://(?:www\.)?t\.me/[A-Za-z0-9_+\-/?.=&%#]+",
+        "",
         text,
         flags=re.IGNORECASE,
     )
 
-    # حذف @Castlenewsiq.
+    # حذف اسم القناة
     text = re.sub(
-        r'(?<!\w)@Castlenewsiq\b',
-        '',
+        r"(?<!\w)@Castlenewsiq\b",
+        "",
         text,
         flags=re.IGNORECASE,
     )
 
-    # حذف توقيع القناة المعروف.
+    # حذف توقيع القناة
     text = re.sub(
-        r'للمزيد\s*من\s*الأخبار\s*اشترك\s*في\s*قناتنا\s*:?\s*👇?',
-        '',
+        r"للمزيد\s*من\s*الأخبار\s*اشترك\s*في\s*قناتنا\s*:?\s*👇?",
+        "",
         text,
         flags=re.IGNORECASE,
     )
 
     text = re.sub(
-        r'اشترك\s*في\s*قناتنا\s*:?\s*👇?',
-        '',
+        r"اشترك\s*في\s*قناتنا\s*:?\s*👇?",
+        "",
         text,
         flags=re.IGNORECASE,
     )
 
-    # إزالة بقية وسوم HTML.
-    text = re.sub(r'<[^>]+>', '', text)
+    # إزالة HTML
+    text = re.sub(
+        r"<[^>]+>",
+        "",
+        text,
+    )
 
-    # تنظيف الفراغات والأسطر الزائدة.
+    # تنظيف الفراغات
     lines = [
-        re.sub(r'[ \t]+', ' ', line).strip()
+        re.sub(r"[ \t]+", " ", line).strip()
         for line in text.splitlines()
     ]
 
-    text = '\n'.join(
+    text = "\n".join(
         line for line in lines if line
     )
 
     return text.strip()
 
 
+# =========================================================
+# Facebook History
+# =========================================================
+
 def load_history():
     try:
-        with open(DB_FILE, 'r', encoding='utf-8') as f:
+        with open(DB_FILE, "r", encoding="utf-8") as f:
             return {
                 line.strip()
                 for line in f
                 if line.strip()
             }
+
     except FileNotFoundError:
         return set()
 
 
 def save_history(msg_id):
-    with open(DB_FILE, 'a', encoding='utf-8') as f:
-        f.write(f'{msg_id}\n')
+    with open(DB_FILE, "a", encoding="utf-8") as f:
+        f.write(f"{msg_id}\n")
 
+
+# =========================================================
+# Instagram History
+# =========================================================
 
 def load_instagram_history():
     try:
-        with open(IG_DB_FILE, 'r', encoding='utf-8') as f:
+        with open(IG_DB_FILE, "r", encoding="utf-8") as f:
             return {
                 line.strip()
                 for line in f
                 if line.strip()
             }
+
     except FileNotFoundError:
         return set()
 
 
 def save_instagram_history(msg_id):
-    with open(IG_DB_FILE, 'a', encoding='utf-8') as f:
-        f.write(f'{msg_id}\n')
+    with open(IG_DB_FILE, "a", encoding="utf-8") as f:
+        f.write(f"{msg_id}\n")
 
+
+# =========================================================
+# جلب منشورات Telegram
+# =========================================================
 
 def fetch_latest_posts(limit=MAX_POSTS_PER_RUN):
-    """جلب آخر منشورات القناة العامة."""
+    """
+    جلب آخر منشورات القناة العامة.
+    """
+
     headers = {
-        'User-Agent': (
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-            'AppleWebKit/537.36 (KHTML, like Gecko) '
-            'Chrome/151.0 Safari/537.36'
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/151.0 Safari/537.36"
         )
     }
 
-    print(f"🌐 الاتصال بقناة: {SOURCE_CHANNEL}")
+    print(
+        f"🌐 الاتصال بقناة: {SOURCE_CHANNEL}"
+    )
 
     res = requests.get(
-        f'https://t.me/s/{SOURCE_CHANNEL}',
+        f"https://t.me/s/{SOURCE_CHANNEL}",
         headers=headers,
         timeout=20,
     )
 
-    print(f"🔍 حالة الاستجابة: {res.status_code}")
+    print(
+        f"🔍 حالة الاستجابة: {res.status_code}"
+    )
 
     res.raise_for_status()
 
@@ -188,43 +249,55 @@ def fetch_latest_posts(limit=MAX_POSTS_PER_RUN):
         re.DOTALL,
     )
 
-    print(f"📊 عدد المنشورات المكتشفة: {len(items)}")
+    print(
+        f"📊 عدد المنشورات المكتشفة: {len(items)}"
+    )
 
     return items[-limit:]
 
 
+# =========================================================
+# تحليل المنشور
+# =========================================================
+
 def parse_post(msg_id, item):
     """
-    تحديد صورة أو فيديو منفرد فقط.
+    فقط:
+    - صورة منفردة
+    - فيديو منفرد
 
-    النصوص فقط = تجاهل.
-    Albums = تجاهل.
-    صورة منفردة = نشر.
-    فيديو منفرد = نشر.
+    يتم تجاهل:
+    - النصوص فقط
+    - Albums
+    - الأنواع غير المدعومة
     """
 
-    # Album / grouped media: تجاهل كامل.
+    # Album / grouped media
     if re.search(
-        r'tgme_widget_message_grouped|data-album=',
+        r"tgme_widget_message_grouped|data-album=",
         item,
         flags=re.IGNORECASE,
     ):
         return None
 
-    # استخراج Caption.
+    # Caption
     msg_match = re.search(
         r'class="tgme_widget_message_text[^>]*>(.*?)</div>',
         item,
         re.DOTALL | re.IGNORECASE,
     )
 
-    raw_text = msg_match.group(1) if msg_match else ''
+    raw_text = (
+        msg_match.group(1)
+        if msg_match
+        else ""
+    )
 
     caption = clean_news_text(raw_text)
 
-    # -----------------------------------------
+    # =====================================================
     # صورة منفردة
-    # -----------------------------------------
+    # =====================================================
 
     photo_match = re.search(
         r'tgme_widget_message_photo_wrap[^>]*style="[^"]*background-image:url\([\'"]?([^\'")]+)',
@@ -233,19 +306,23 @@ def parse_post(msg_id, item):
     )
 
     if photo_match:
+
         return {
-            'id': str(msg_id),
-            'type': 'photo',
-            'url': html.unescape(photo_match.group(1)),
-            'caption': caption,
+            "id": str(msg_id),
+            "type": "photo",
+            "url": html.unescape(
+                photo_match.group(1)
+            ),
+            "caption": caption,
         }
 
-    # fallback للصورة إذا ظهر src مباشر.
+    # fallback للصورة
     if re.search(
-        r'tgme_widget_message_photo_wrap',
+        r"tgme_widget_message_photo_wrap",
         item,
         re.IGNORECASE,
     ):
+
         img_match = re.search(
             r'<img[^>]+src="([^"]+)"',
             item,
@@ -253,16 +330,19 @@ def parse_post(msg_id, item):
         )
 
         if img_match:
+
             return {
-                'id': str(msg_id),
-                'type': 'photo',
-                'url': html.unescape(img_match.group(1)),
-                'caption': caption,
+                "id": str(msg_id),
+                "type": "photo",
+                "url": html.unescape(
+                    img_match.group(1)
+                ),
+                "caption": caption,
             }
 
-    # -----------------------------------------
+    # =====================================================
     # فيديو منفرد
-    # -----------------------------------------
+    # =====================================================
 
     video_match = re.search(
         r'<video[^>]+(?:src|data-src)="([^"]+)"',
@@ -271,6 +351,7 @@ def parse_post(msg_id, item):
     )
 
     if not video_match:
+
         video_match = re.search(
             r'<source[^>]+src="([^"]+)"',
             item,
@@ -278,6 +359,7 @@ def parse_post(msg_id, item):
         )
 
     if not video_match:
+
         video_match = re.search(
             r'tgme_widget_message_video[^>]+[^>]*data-video="([^"]+)"',
             item,
@@ -285,40 +367,55 @@ def parse_post(msg_id, item):
         )
 
     if video_match:
+
         return {
-            'id': str(msg_id),
-            'type': 'video',
-            'url': html.unescape(video_match.group(1)),
-            'caption': caption,
+            "id": str(msg_id),
+            "type": "video",
+            "url": html.unescape(
+                video_match.group(1)
+            ),
+            "caption": caption,
         }
 
-    # أي منشور بدون صورة/فيديو = نص فقط أو نوع غير مدعوم.
+    # النصوص فقط أو الأنواع الأخرى
     return None
 
 
+# =========================================================
+# تنزيل الوسائط
+# =========================================================
+
 def download_media(media_url, media_type, msg_id):
-    """تنزيل الوسيط مؤقتًا داخل GitHub Runner فقط."""
+    """
+    تنزيل الوسيط مؤقتًا داخل GitHub Runner فقط.
+    """
+
     os.makedirs(
         TEMP_MEDIA_DIR,
         exist_ok=True,
     )
 
-    ext = '.mp4' if media_type == 'video' else '.jpg'
+    ext = (
+        ".mp4"
+        if media_type == "video"
+        else ".jpg"
+    )
 
     path = os.path.join(
         TEMP_MEDIA_DIR,
-        f'{msg_id}{ext}',
+        f"{msg_id}{ext}",
     )
 
     headers = {
-        'User-Agent': (
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-            'AppleWebKit/537.36 (KHTML, like Gecko) '
-            'Chrome/151.0 Safari/537.36'
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/151.0 Safari/537.36"
         )
     }
 
     try:
+
         with requests.get(
             media_url,
             headers=headers,
@@ -328,55 +425,61 @@ def download_media(media_url, media_type, msg_id):
 
             r.raise_for_status()
 
-            with open(path, 'wb') as f:
+            with open(path, "wb") as f:
+
                 for chunk in r.iter_content(
                     chunk_size=1024 * 1024
                 ):
+
                     if chunk:
                         f.write(chunk)
 
         return path
 
     except Exception:
+
         remove_temp_file(path)
+
         raise
 
+
+# =========================================================
+# Facebook
+# =========================================================
 
 def post_to_facebook(
     media_path,
     media_type,
-    message='',
+    message="",
 ):
     """
-    رفع صورة أو فيديو إلى Facebook.
-
-    هذا المسار لم يتغير عن المسار الحالي.
+    مسار Facebook مستقل.
     """
 
     try:
 
-        if media_type == 'photo':
+        if media_type == "photo":
 
             url = (
-                f'https://graph.facebook.com/v19.0/'
-                f'{FB_PAGE_ID}/photos'
+                f"https://graph.facebook.com/v19.0/"
+                f"{FB_PAGE_ID}/photos"
             )
 
             payload = {
-                'caption': message,
-                'access_token': FB_PAGE_TOKEN,
+                "caption": message,
+                "access_token": FB_PAGE_TOKEN,
             }
 
             with open(
                 media_path,
-                'rb',
+                "rb",
             ) as media_file:
 
                 r = requests.post(
                     url,
                     data=payload,
                     files={
-                        'source': media_file
+                        "source": media_file
                     },
                     timeout=120,
                 )
@@ -384,25 +487,25 @@ def post_to_facebook(
         else:
 
             url = (
-                f'https://graph.facebook.com/v19.0/'
-                f'{FB_PAGE_ID}/videos'
+                f"https://graph.facebook.com/v19.0/"
+                f"{FB_PAGE_ID}/videos"
             )
 
             payload = {
-                'description': message,
-                'access_token': FB_PAGE_TOKEN,
+                "description": message,
+                "access_token": FB_PAGE_TOKEN,
             }
 
             with open(
                 media_path,
-                'rb',
+                "rb",
             ) as media_file:
 
                 r = requests.post(
                     url,
                     data=payload,
                     files={
-                        'source': media_file
+                        "source": media_file
                     },
                     timeout=300,
                 )
@@ -434,29 +537,22 @@ def post_to_facebook(
 
 
 # =========================================================
-# Instagram API - Instagram Login
+# Instagram - Instagram Login
 # =========================================================
 
 def instagram_request(
     method,
     endpoint,
-    **kwargs
+    **kwargs,
 ):
     """
-    طلب مستقل إلى Instagram API باستخدام
-    Instagram Login وInstagram User Access Token.
+    طلب مستقل إلى Instagram API.
 
-    هذا المسار مستقل بالكامل عن Facebook.
+    يستخدم:
+    graph.instagram.com
+
+    وInstagram User Access Token.
     """
-
-    if not IG_USER_ID:
-
-        print(
-            "⚠️ Instagram: "
-            "IG_USER_ID غير موجود."
-        )
-
-        return None
 
     if not IG_ACCESS_TOKEN:
 
@@ -467,20 +563,18 @@ def instagram_request(
 
         return None
 
-    # Instagram Login يستخدم graph.instagram.com
     url = (
-        f'https://graph.instagram.com/v23.0/'
-        f'{endpoint.lstrip("/")}'
+        f"https://graph.instagram.com/v23.0/"
+        f"{endpoint.lstrip('/')}"
     )
 
     headers = kwargs.pop(
-        'headers',
+        "headers",
         {},
     )
 
-    # Meta Instagram Login يستخدم Bearer Token.
-    headers['Authorization'] = (
-        f'Bearer {IG_ACCESS_TOKEN}'
+    headers["Authorization"] = (
+        f"Bearer {IG_ACCESS_TOKEN}"
     )
 
     try:
@@ -502,6 +596,112 @@ def instagram_request(
         return None
 
 
+# =========================================================
+# اختبار Token واستخراج Instagram User ID
+# =========================================================
+
+def test_instagram_token():
+    """
+    التحقق من أن Instagram Access Token يعمل
+    واستخراج الحساب المرتبط به تلقائيًا.
+
+    إذا كان IG_USER_ID الموجود في GitHub خاطئًا،
+    سيتم استخدام ID الذي تعيده Meta لهذا الـ Token.
+    """
+
+    global IG_USER_ID
+
+    if not IG_ACCESS_TOKEN:
+
+        print(
+            "❌ Instagram: "
+            "IG_ACCESS_TOKEN غير موجود."
+        )
+
+        return False
+
+    print(
+        "🔎 Instagram: فحص Access Token..."
+    )
+
+    r = instagram_request(
+        "GET",
+        "me",
+        params={
+            "fields": "id,username"
+        },
+    )
+
+    if r is None:
+        return False
+
+    print(
+        f"🔎 Instagram Token Status: "
+        f"{r.status_code}"
+    )
+
+    if r.status_code != 200:
+
+        print(
+            "❌ Instagram Token Error: "
+            f"{r.text[:1000]}"
+        )
+
+        return False
+
+    try:
+
+        data = r.json()
+
+    except Exception:
+
+        print(
+            "❌ Instagram: "
+            "تعذر قراءة استجابة Meta."
+        )
+
+        return False
+
+    detected_id = data.get("id")
+    username = data.get("username")
+
+    if not detected_id:
+
+        print(
+            "❌ Instagram: "
+            "Meta لم ترجع User ID."
+        )
+
+        print(
+            f"📋 Response: {data}"
+        )
+
+        return False
+
+    # استخدام ID الحقيقي المرتبط بالـ Token
+    IG_USER_ID = str(detected_id)
+
+    print(
+        "✅ Instagram Token صالح."
+    )
+
+    print(
+        f"👤 Instagram Username: "
+        f"{username or 'غير متوفر'}"
+    )
+
+    print(
+        f"🆔 Instagram User ID: "
+        f"{IG_USER_ID}"
+    )
+
+    return True
+
+
+# =========================================================
+# Instagram - نشر
+# =========================================================
+
 def post_to_instagram(
     media_url,
     media_type,
@@ -510,13 +710,7 @@ def post_to_instagram(
     """
     نشر صورة أو فيديو على Instagram.
 
-    الصورة:
-        image_url
-
-    الفيديو:
-        video_url + media_type=REELS
-
-    Instagram يسحب الوسائط مباشرة من الرابط العام.
+    لا يعتمد على Facebook.
     """
 
     if not IG_USER_ID:
@@ -538,26 +732,26 @@ def post_to_instagram(
         return False
 
     caption = (
-        caption or ''
+        caption or ""
     )[:2200]
 
-    # -----------------------------------------
-    # إنشاء Media Container
-    # -----------------------------------------
+    # =====================================================
+    # إنشاء Container
+    # =====================================================
 
-    if media_type == 'photo':
+    if media_type == "photo":
 
         payload = {
-            'image_url': media_url,
-            'caption': caption,
+            "image_url": media_url,
+            "caption": caption,
         }
 
-    elif media_type == 'video':
+    elif media_type == "video":
 
         payload = {
-            'media_type': 'REELS',
-            'video_url': media_url,
-            'caption': caption,
+            "media_type": "REELS",
+            "video_url": media_url,
+            "caption": caption,
         }
 
     else:
@@ -570,8 +764,8 @@ def post_to_instagram(
     )
 
     r = instagram_request(
-        'POST',
-        f'{IG_USER_ID}/media',
+        "POST",
+        f"{IG_USER_ID}/media",
         data=payload,
     )
 
@@ -591,8 +785,7 @@ def post_to_instagram(
     try:
 
         creation_id = (
-            r.json()
-            .get('id')
+            r.json().get("id")
         )
 
     except Exception:
@@ -613,13 +806,13 @@ def post_to_instagram(
         f"{creation_id}"
     )
 
-    # -----------------------------------------
-    # انتظار معالجة الفيديو / الصورة
-    # -----------------------------------------
+    # =====================================================
+    # انتظار المعالجة
+    # =====================================================
 
     max_checks = (
         60
-        if media_type == 'video'
+        if media_type == "video"
         else 20
     )
 
@@ -627,15 +820,14 @@ def post_to_instagram(
         max_checks
     ):
 
-        # انتظار 5 ثوانٍ بين الفحوصات.
         time.sleep(5)
 
         status = instagram_request(
-            'GET',
+            "GET",
             creation_id,
             params={
-                'fields':
-                    'status_code,status'
+                "fields":
+                    "status_code,status"
             },
         )
 
@@ -662,12 +854,12 @@ def post_to_instagram(
 
         status_code = str(
             data.get(
-                'status_code',
-                ''
+                "status_code",
+                "",
             )
         ).upper()
 
-        if status_code == 'FINISHED':
+        if status_code == "FINISHED":
 
             print(
                 "✅ Instagram: "
@@ -677,8 +869,8 @@ def post_to_instagram(
             break
 
         if status_code in {
-            'ERROR',
-            'EXPIRED',
+            "ERROR",
+            "EXPIRED",
         }:
 
             print(
@@ -708,19 +900,19 @@ def post_to_instagram(
 
         return False
 
-    # -----------------------------------------
-    # نشر الـ Container
-    # -----------------------------------------
+    # =====================================================
+    # نشر Container
+    # =====================================================
 
     print(
         "📤 Instagram: نشر الـ Container..."
     )
 
     publish = instagram_request(
-        'POST',
-        f'{IG_USER_ID}/media_publish',
+        "POST",
+        f"{IG_USER_ID}/media_publish",
         data={
-            'creation_id': creation_id
+            "creation_id": creation_id
         },
     )
 
@@ -745,8 +937,14 @@ def post_to_instagram(
     return False
 
 
+# =========================================================
+# حذف الملفات المؤقتة
+# =========================================================
+
 def remove_temp_file(path):
-    """حذف الملف سواء نجح النشر أو فشل."""
+    """
+    حذف الملف سواء نجح النشر أو فشل.
+    """
 
     if not path:
         return
@@ -808,12 +1006,17 @@ def cleanup_temp_dir():
         )
 
 
+# =========================================================
+# Main
+# =========================================================
+
 def main():
 
     print(
         "🚀 بدء تنفيذ البوت..."
     )
 
+    # التشغيل اليدوي يتجاوز الوقت
     if not is_work_time():
 
         print(
@@ -822,7 +1025,28 @@ def main():
 
         return
 
-    # تصفير سجلي Facebook وInstagram كل 48 ساعة.
+    # =====================================================
+    # Instagram Token Check
+    # =====================================================
+
+    instagram_ready = test_instagram_token()
+
+    if not instagram_ready:
+
+        print(
+            "⚠️ Instagram: "
+            "فشل فحص Token."
+        )
+
+        print(
+            "⚠️ سيتم الاستمرار في Facebook "
+            "بشكل طبيعي."
+        )
+
+    # =====================================================
+    # History
+    # =====================================================
+
     reset_history_if_needed()
 
     cleanup_temp_dir()
@@ -846,12 +1070,12 @@ def main():
 
             return
 
-        # الأقدم أولًا ضمن آخر 5.
+        # الأقدم أولًا ضمن آخر 5
         for msg_id, item in items:
 
             sig = msg_id.strip()
 
-            # إذا نجح على المنصتين سابقًا.
+            # إذا نجح على المنصتين سابقًا
             if (
                 sig in fb_history
                 and sig in ig_history
@@ -868,7 +1092,10 @@ def main():
                 item,
             )
 
-            # النصوص فقط وAlbums = تجاهل.
+            # =================================================
+            # تجاهل النصوص وAlbums
+            # =================================================
+
             if not post:
 
                 print(
@@ -877,7 +1104,7 @@ def main():
                     f"Album/نوع غير مدعوم."
                 )
 
-                # تسجيله حتى لا يعاد فحصه.
+                # تسجيل المنشور المتجاهل
                 if sig not in fb_history:
 
                     save_history(sig)
@@ -896,9 +1123,9 @@ def main():
 
             try:
 
-                # =========================================
+                # =============================================
                 # Facebook
-                # =========================================
+                # =============================================
 
                 if sig not in fb_history:
 
@@ -908,15 +1135,15 @@ def main():
                     )
 
                     temp_path = download_media(
-                        post['url'],
-                        post['type'],
+                        post["url"],
+                        post["type"],
                         sig,
                     )
 
                     fb_success = post_to_facebook(
                         temp_path,
-                        post['type'],
-                        post['caption'],
+                        post["type"],
+                        post["caption"],
                     )
 
                     if fb_success:
@@ -935,21 +1162,24 @@ def main():
                         print(
                             "⚠️ Facebook: "
                             "فشل النشر، "
-                            "لكن سيستمر مسار Instagram."
+                            "لكن سيستمر Instagram."
                         )
 
-                    # حذف ملف Facebook المؤقت.
+                    # حذف ملف Facebook
                     remove_temp_file(
                         temp_path
                     )
 
                     temp_path = None
 
-                # =========================================
+                # =============================================
                 # Instagram
-                # =========================================
+                # =============================================
 
-                if sig not in ig_history:
+                if (
+                    instagram_ready
+                    and sig not in ig_history
+                ):
 
                     print(
                         f"📸 Instagram: معالجة "
@@ -957,9 +1187,9 @@ def main():
                     )
 
                     ig_success = post_to_instagram(
-                        post['url'],
-                        post['type'],
-                        post['caption'],
+                        post["url"],
+                        post["type"],
+                        post["caption"],
                     )
 
                     if ig_success:
@@ -980,9 +1210,15 @@ def main():
                         print(
                             "⚠️ Instagram: "
                             "فشل النشر، "
-                            "ولا يؤثر ذلك على Facebook. "
-                            "سيُعاد فحصه في تشغيل لاحق."
+                            "ولا يؤثر ذلك على Facebook."
                         )
+
+                elif not instagram_ready:
+
+                    print(
+                        "⏭️ Instagram: "
+                        "تم تخطيه بسبب فشل المصادقة."
+                    )
 
             except Exception as e:
 
@@ -993,12 +1229,12 @@ def main():
 
             finally:
 
-                # حذف أي ملف مؤقت متبقٍ.
+                # حذف أي ملف متبقٍ
                 remove_temp_file(
                     temp_path
                 )
 
-            # 10 ثوانٍ بين المنشورات.
+            # 10 ثوانٍ بين المنشورات
             time.sleep(
                 POST_DELAY_SECONDS
             )
@@ -1014,5 +1250,9 @@ def main():
         cleanup_temp_dir()
 
 
-if __name__ == '__main__':
+# =========================================================
+# تشغيل البرنامج
+# =========================================================
+
+if __name__ == "__main__":
     main()
