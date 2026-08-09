@@ -1,0 +1,51 @@
+name: News Bot V3
+
+on:
+  schedule:
+    # تشغيل البوت كل ساعتين.
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+
+# السماح لـ GitHub Actions بحفظ سجل الأخبار بعد كل تشغيل.
+permissions:
+  contents: write
+
+# منع تشغيل نسختين من البوت في الوقت نفسه.
+concurrency:
+  group: castle-news-facebook-publisher
+  cancel-in-progress: false
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install Dependencies
+        run: pip install requests
+
+      - name: Run News Bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          GMY: ${{ secrets.GMY }}
+          NEWS_CHANNEL: ${{ secrets.NEWS_CHANNEL }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_TOKEN: ${{ secrets.FB_TOKEN }}
+          MY_CHANNEL_LINK: ${{ secrets.MY_CHANNEL_LINK }}
+        run: python script.py
+
+      - name: Save History
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add last_news_id.txt .news_history_reset
+          git diff --cached --quiet || git commit -m "Update news history"
+          git push
