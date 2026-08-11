@@ -3,7 +3,7 @@ name: News Bot V3
 on:
   schedule:
     # تشغيل البوت كل ساعتين.
-    - cron: '0 */2 * * *'
+    - cron: '0 6,8,10,12,14,16,18,20,21 * * *'
   workflow_dispatch:
 
 # السماح لـ GitHub Actions بحفظ سجل الأخبار بعد كل تشغيل.
