@@ -26,8 +26,8 @@ RESET_FILE = ".news_history_reset"
 
 SOURCE_CHANNEL = "Castlenewsiq"
 
-# الحد الأقصى 5 منشورات في كل تشغيل
-MAX_POSTS_PER_RUN = 5
+# الحد الأقصى 10 منشورات في كل تشغيل
+MAX_POSTS_PER_RUN = 10
 
 # 10 ثوانٍ بين المنشورات
 POST_DELAY_SECONDS = 10
