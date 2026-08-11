@@ -59,7 +59,7 @@ def is_work_time():
         return True
 
     current_hour = (datetime.utcnow().hour + 3) % 24
-    return 9 <= current_hour <= 23
+    return 9 <= current_hour <= 23 or current_hour == 0
 
 
 # =========================================================
