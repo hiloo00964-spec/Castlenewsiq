@@ -1,4 +1,3 @@
-
 name: News Bot V3
 
 on:
@@ -29,7 +28,7 @@ jobs:
           python-version: '3.9'
 
       - name: Install Dependencies
-        run: pip install requests
+        run: pip install -r requirements.txt
 
       - name: Run News Bot
         env:
@@ -52,6 +51,9 @@ jobs:
           THREADS_USER_ID: ${{ secrets.THREADS_USER_ID }}
           THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
 
+          # GitHub Secrets Auto-Update
+          GH_PAT: ${{ secrets.GH_PAT }}
+
           # التشغيل اليدوي يتجاوز ساعات العمل.
           FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
 
@@ -70,6 +72,10 @@ jobs:
 
           if [ -f last_threads_id.txt ]; then
             git add last_threads_id.txt
+          fi
+
+          if [ -f .ig_token_refresh ]; then
+            git add .ig_token_refresh
           fi
 
           git diff --cached --quiet || git commit -m "Update news history"
