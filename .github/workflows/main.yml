@@ -1,23 +1,22 @@
+
 name: News Bot V3
 
 on:
   schedule:
-    # تشغيل البوت كل ساعتين.
+    # تشغيل البوت حسب الجدول المحدد.
     - cron: '0 6,8,10,12,14,16,18,20,21 * * *'
   workflow_dispatch:
 
-# السماح لـ GitHub Actions بحفظ سجل الأخبار بعد كل تشغيل.
 permissions:
   contents: write
 
-# منع تشغيل نسختين من البوت في الوقت نفسه.
 concurrency:
   group: castle-news-facebook-publisher
   cancel-in-progress: false
 
 jobs:
   run-bot:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
