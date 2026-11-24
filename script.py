@@ -1,10 +1,10 @@
 import os
 import re
 import html
-import base64
 import requests
 import time
 from datetime import datetime
+from nacl import encoding, public
 
 # =========================================================
 # الإعدادات الأساسية
@@ -16,19 +16,27 @@ FB_PAGE_TOKEN = os.getenv("FB_TOKEN")
 IG_USER_ID = os.getenv("IG_USER_ID")
 IG_ACCESS_TOKEN = os.getenv("IG_ACCESS_TOKEN")
 
-# GitHub Secrets Auto-Update
-GH_PAT = os.getenv("GH_PAT")
-GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY")
-
 # Threads
 THREADS_USER_ID = os.getenv("THREADS_USER_ID")
 THREADS_ACCESS_TOKEN = os.getenv("THREADS_ACCESS_TOKEN")
+
+# GitHub Secrets Auto-Refresh
+GH_PAT = os.getenv("GH_PAT")
+GITHUB_REPOSITORY = os.getenv(
+    "GITHUB_REPOSITORY",
+    "hiloo00964-spec/Castlenewsiq",
+)
 
 DB_FILE = "last_news_id.txt"
 IG_DB_FILE = "last_instagram_id.txt"
 THREADS_DB_FILE = "last_threads_id.txt"
 RESET_FILE = ".news_history_reset"
+
 IG_REFRESH_FILE = ".ig_token_refresh"
+THREADS_REFRESH_FILE = ".threads_token_refresh"
+
+# تجديد التوكن كل 45 يوماً
+TOKEN_REFRESH_INTERVAL_SECONDS = 45 * 24 * 60 * 60
 
 SOURCE_CHANNEL = "Castlenewsiq"
 
@@ -41,11 +49,8 @@ MAX_ALBUM_ITEMS = 20
 # 10 ثوانٍ بين المنشورات
 POST_DELAY_SECONDS = 10
 
-# تصفير السجل كل 48 ساعة
+# تصفير السجل كل 7 أيام
 HISTORY_RESET_SECONDS = 7 * 24 * 60 * 60
-
-# تجديد توكن Instagram تلقائيًا كل 45 يومًا
-IG_REFRESH_INTERVAL_SECONDS = 45 * 24 * 60 * 60
 
 TEMP_MEDIA_DIR = "tmp_media"
 
@@ -73,6 +78,233 @@ def is_work_time():
     current_hour = (datetime.utcnow().hour + 3) % 24
     # ساعات العمل بتوقيت العراق: 09:00 - 23:00 + 00:00
     return (9 <= current_hour <= 23) or current_hour == 0
+
+
+# =========================================================
+# تحديث أسرار GitHub Secrets وتجديد التوكنات تلقائياً
+# =========================================================
+
+def update_github_secret(secret_name, secret_value):
+    """
+    تشفير التوكن الجديد باستخدام PyNaCl وحفظه في GitHub Secrets.
+    """
+    if not GH_PAT:
+        print(
+            f"⚠️ GitHub Secrets: GH_PAT غير موجود، "
+            f"تعذر تحديث {secret_name}."
+        )
+        return False
+
+    headers = {
+        "Authorization": f"Bearer {GH_PAT}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    try:
+        key_url = (
+            f"https://api.github.com/repos/"
+            f"{GITHUB_REPOSITORY}/actions/secrets/public-key"
+        )
+        key_res = requests.get(
+            key_url,
+            headers=headers,
+            timeout=30,
+        )
+
+        if key_res.status_code != 200:
+            print(
+                f"❌ GitHub Public Key Error: "
+                f"{key_res.status_code} - {key_res.text[:500]}"
+            )
+            return False
+
+        key_data = key_res.json()
+        key_id = key_data.get("key_id")
+        public_key_b64 = key_data.get("key")
+
+        if not key_id or not public_key_b64:
+            print(
+                "❌ GitHub Public Key: بيانات المفتاح ناقصة."
+            )
+            return False
+
+        public_key = public.PublicKey(
+            public_key_b64.encode("utf-8"),
+            encoding.Base64Encoder(),
+        )
+        sealed_box = public.SealedBox(public_key)
+        encrypted = sealed_box.encrypt(
+            secret_value.encode("utf-8")
+        )
+        encrypted_value = (
+            encoding.Base64Encoder()
+            .encode(encrypted)
+            .decode("utf-8")
+        )
+
+        secret_url = (
+            f"https://api.github.com/repos/"
+            f"{GITHUB_REPOSITORY}/actions/secrets/{secret_name}"
+        )
+        put_res = requests.put(
+            secret_url,
+            headers=headers,
+            json={
+                "encrypted_value": encrypted_value,
+                "key_id": key_id,
+            },
+            timeout=30,
+        )
+
+        if put_res.status_code in (201, 204):
+            print(
+                f"🔐 GitHub Secret: تم تحديث "
+                f"{secret_name} بنجاح."
+            )
+            return True
+
+        print(
+            f"❌ GitHub Secret Update Error ({secret_name}): "
+            f"{put_res.status_code} - {put_res.text[:500]}"
+        )
+        return False
+
+    except Exception as e:
+        print(
+            f"⚠️ GitHub Secret Connection Error ({secret_name}): {e}"
+        )
+        return False
+
+
+def refresh_instagram_token_if_needed():
+    """
+    تجديد IG_ACCESS_TOKEN تلقائياً كل 45 يوماً وحفظه في GitHub Secrets.
+    """
+    global IG_ACCESS_TOKEN
+
+    if not IG_ACCESS_TOKEN:
+        return
+
+    now = time.time()
+
+    try:
+        with open(IG_REFRESH_FILE, "r", encoding="utf-8") as f:
+            last_refresh = float(f.read().strip())
+    except (FileNotFoundError, ValueError):
+        last_refresh = 0
+
+    if now - last_refresh < TOKEN_REFRESH_INTERVAL_SECONDS:
+        return
+
+    print(
+        "🔄 Instagram: محاولة تجديد Access Token التلقائي..."
+    )
+
+    try:
+        r = requests.get(
+            "https://graph.instagram.com/refresh_access_token",
+            params={
+                "grant_type": "ig_refresh_token",
+                "access_token": IG_ACCESS_TOKEN,
+            },
+            timeout=30,
+        )
+
+        if r.status_code != 200:
+            print(
+                f"⚠️ Instagram Refresh Error: "
+                f"{r.status_code} - {r.text[:500]}"
+            )
+            return
+
+        data = r.json()
+        new_token = data.get("access_token")
+
+        if not new_token:
+            print(
+                "⚠️ Instagram Refresh: لم يتم استلام توكن جديد."
+            )
+            return
+
+        if update_github_secret("IG_ACCESS_TOKEN", new_token):
+            IG_ACCESS_TOKEN = new_token
+            with open(IG_REFRESH_FILE, "w", encoding="utf-8") as f:
+                f.write(str(now))
+            print(
+                "✅ Instagram: تم تجديد التوكن وتحديث "
+                ".ig_token_refresh بنجاح."
+            )
+
+    except Exception as e:
+        print(
+            f"⚠️ Instagram Refresh Connection Error: {e}"
+        )
+
+
+def refresh_threads_token_if_needed():
+    """
+    تجديد THREADS_ACCESS_TOKEN تلقائياً كل 45 يوماً وحفظه في GitHub Secrets.
+    """
+    global THREADS_ACCESS_TOKEN
+
+    if not THREADS_ACCESS_TOKEN:
+        return
+
+    now = time.time()
+
+    try:
+        with open(THREADS_REFRESH_FILE, "r", encoding="utf-8") as f:
+            last_refresh = float(f.read().strip())
+    except (FileNotFoundError, ValueError):
+        last_refresh = 0
+
+    if now - last_refresh < TOKEN_REFRESH_INTERVAL_SECONDS:
+        return
+
+    print(
+        "🔄 Threads: محاولة تجديد Access Token التلقائي..."
+    )
+
+    try:
+        r = requests.get(
+            f"{THREADS_API_BASE}/refresh_access_token",
+            params={
+                "grant_type": "th_refresh_token",
+                "access_token": THREADS_ACCESS_TOKEN,
+            },
+            timeout=30,
+        )
+
+        if r.status_code != 200:
+            print(
+                f"⚠️ Threads Refresh Error: "
+                f"{r.status_code} - {r.text[:500]}"
+            )
+            return
+
+        data = r.json()
+        new_token = data.get("access_token")
+
+        if not new_token:
+            print(
+                "⚠️ Threads Refresh: لم يتم استلام توكن جديد."
+            )
+            return
+
+        if update_github_secret("THREADS_ACCESS_TOKEN", new_token):
+            THREADS_ACCESS_TOKEN = new_token
+            with open(THREADS_REFRESH_FILE, "w", encoding="utf-8") as f:
+                f.write(str(now))
+            print(
+                "✅ Threads: تم تجديد التوكن وتحديث "
+                ".threads_token_refresh بنجاح."
+            )
+
+    except Exception as e:
+        print(
+            f"⚠️ Threads Refresh Connection Error: {e}"
+        )
 
 
 # =========================================================
@@ -406,10 +638,6 @@ def parse_album(msg_id, item):
     # عناصر الـAlbum بالترتيب الأصلي
     # -----------------------------------------------------
 
-    # في بنية Telegram الحقيقية، صورة كل عنصر تُحمل عبر رابط
-    # ?single على مستوى الـanchor نفسه (وليس داخل <a>...)</a>).
-    # نلتقط هذه الروابط بالترتيب ابتداءً من بداية grouped wrap.
-
     single_pattern = re.findall(
         r'class="tgme_widget_message_photo_wrap grouped_media_wrap[^"]*"'
         r'[^>]*background-image:url\(\s*[\'"]?([^\'"\)\s][^\'")\n]*)'
@@ -420,10 +648,6 @@ def parse_album(msg_id, item):
 
     if not single_pattern:
         return None
-
-    # في صفحة الرسالة يُعرض كل الـAlbums المتجاورة في نفس
-    # الـgrouped wrap. نأخذ فقط العناصر المتسلسلة التي تبدأ
-    # من معرف رسالة الـAlbum المستهدف.
 
     expected_id = int(msg_id)
     items = []
@@ -444,10 +668,6 @@ def parse_album(msg_id, item):
     # حماية من Album ناقص
     # -----------------------------------------------------
 
-    # المرجع الحقيقي لعدد عناصر الـAlbum هو عدد عناصر
-    # الـgrouped داخل chunk الرسالة على الصفحة الرئيسية
-    # (item) كما يظهر في Telegram.
-    # إذا كانت صفحة الرسالة أخرجت عددًا أقل → استخراج ناقص.
     reference_count = count_grouped_anchors(item)
 
     print(
@@ -465,7 +685,6 @@ def parse_album(msg_id, item):
         return None
 
     if reference_count == 0:
-        # Chunk الرئيسي لم يُظهر عناصر → لا يمكن الثقة بالاستخراج.
         return None
 
     # -----------------------------------------------------
@@ -657,6 +876,53 @@ def download_media(media_url, media_type, msg_id):
 # Facebook
 # =========================================================
 
+def check_facebook_token():
+    """
+    فحص صلاحية FB_TOKEN الدائمي الخاص بالصفحة قبل البدء.
+    """
+    if not FB_PAGE_ID or not FB_PAGE_TOKEN:
+        print(
+            "⚠️ Facebook: FB_PAGE_ID أو FB_TOKEN غير موجود."
+        )
+        return False
+
+    print("🔎 Facebook: فحص Page Access Token...")
+
+    try:
+        r = requests.get(
+            f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}",
+            params={
+                "fields": "id,name",
+                "access_token": FB_PAGE_TOKEN,
+            },
+            timeout=30,
+        )
+
+        print(f"🔎 Facebook Token Status: {r.status_code}")
+
+        if r.status_code != 200:
+            print(
+                f"❌ Facebook Token Error: "
+                f"{r.status_code} - {r.text[:1000]}"
+            )
+            print(
+                "⚠️ ملاحظة: توكن صفحة فيسبوك دائمي؛ "
+                "إذا انتهت صلاحيته بسبب تغيير كلمة المرور أو الصلاحيات، "
+                "يرجى تحديث FB_TOKEN يدوياً."
+            )
+            return False
+
+        data = r.json()
+        page_name = data.get("name") or "غير متوفر"
+        print("✅ Facebook Page Token صالح (دائمي).")
+        print(f"📘 Facebook Page: {page_name} ({FB_PAGE_ID})")
+        return True
+
+    except Exception as e:
+        print(f"⚠️ Facebook Token Check Connection Error: {e}")
+        return True
+
+
 def post_to_facebook(
     media_path,
     media_type,
@@ -737,17 +1003,6 @@ def post_album_to_facebook(
 ):
     """
     نشر الـAlbum على Facebook كمنشور واحد.
-
-    يتم رفع كل صورة للحصول على media_fbid،
-    ثم نشر منشور واحد يحتوي جميع الصور عبر attached_media.
-
-    قيود Facebook Graph API:
-    - attached_media يقبل صورًا فقط (Media fbid من /photos).
-    - لا يوجد مسار رسمي في Graph API ينشر عدة فيديوهات
-      في منشور واحد (multi-video post غير مدعوم).
-
-    لذلك: Album مختلط أو فيديوهات فقط يُسجّل سبب التخطي
-    في Log ولا يُنشر، ولا يُقسّم إلى منشورات منفردة.
     """
     if not FB_PAGE_ID or not FB_PAGE_TOKEN:
         print(
@@ -835,16 +1090,11 @@ def post_album_to_facebook(
                 )
             return False
 
-        # إصلاح خطأ "Requires upload file":
-        # المنشور المرفق بـ attached_media يجب أن يُنشر
-        # عبر endpoint /feed وليس /photos.
         post_url = (
             f"https://graph.facebook.com/v19.0/"
             f"{FB_PAGE_ID}/feed"
         )
 
-        # فحص حاسم: عدد الصور المرفقة يجب أن يساوي
-        # عدد العناصر المختارة - وإلا لا نشر.
         print(
             f"📊 Facebook Album: selected="
             f"{len(attached_media)} attached="
@@ -893,131 +1143,6 @@ def post_album_to_facebook(
             f"⚠️ FB Album Connection Error: {e}"
         )
         return False
-
-
-# =========================================================
-# تجديد توكن Instagram وحفظه تلقائيًا في GitHub Secrets
-# =========================================================
-
-def update_github_secret(secret_name, secret_value):
-    """
-    تشفير وحفظ التوكن الجديد مباشرة داخل GitHub Actions Secrets.
-    """
-    if not GH_PAT or not GITHUB_REPOSITORY:
-        print(
-            "⚠️ Auto-Refresh: GH_PAT أو GITHUB_REPOSITORY غير متوفر لحفظ التوكن في Secrets."
-        )
-        return False
-
-    try:
-        from nacl import encoding, public
-    except ImportError:
-        print(
-            "⚠️ Auto-Refresh: مكتبة PyNaCl غير مثبتة (أضف PyNaCl إلى requirements.txt)."
-        )
-        return False
-
-    headers = {
-        "Authorization": f"Bearer {GH_PAT}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-
-    try:
-        key_url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/public-key"
-        key_res = requests.get(key_url, headers=headers, timeout=30)
-        if key_res.status_code != 200:
-            print(
-                f"❌ GitHub Public Key Error: {key_res.status_code} - {key_res.text[:300]}"
-            )
-            return False
-
-        key_data = key_res.json()
-        public_key = public.PublicKey(
-            key_data["key"].encode("utf-8"),
-            encoding.Base64Encoder(),
-        )
-        sealed_box = public.SealedBox(public_key)
-        encrypted = sealed_box.encrypt(secret_value.encode("utf-8"))
-        encrypted_value = base64.b64encode(encrypted).decode("utf-8")
-
-        put_url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/{secret_name}"
-        put_res = requests.put(
-            put_url,
-            headers=headers,
-            json={
-                "encrypted_value": encrypted_value,
-                "key_id": key_data["key_id"],
-            },
-            timeout=30,
-        )
-
-        if put_res.status_code in (201, 204):
-            print(f"🔐 GitHub Secrets: تم تحديث {secret_name} بنجاح.")
-            return True
-
-        print(
-            f"❌ GitHub Secret Update Error: {put_res.status_code} - {put_res.text[:300]}"
-        )
-        return False
-
-    except Exception as e:
-        print(f"⚠️ GitHub Secret Connection Error: {e}")
-        return False
-
-
-def refresh_instagram_token_if_needed():
-    """
-    تجديد IG_ACCESS_TOKEN تلقائيًا كل 45 يومًا قبل انتهاء صلاحيته (60 يومًا).
-    """
-    global IG_ACCESS_TOKEN
-
-    if not IG_ACCESS_TOKEN:
-        return
-
-    now = time.time()
-    try:
-        with open(IG_REFRESH_FILE, "r", encoding="utf-8") as f:
-            last_refresh = float(f.read().strip())
-    except (FileNotFoundError, ValueError):
-        last_refresh = 0
-
-    if now - last_refresh < IG_REFRESH_INTERVAL_SECONDS:
-        return
-
-    print("🔄 Instagram: حان موعد تجديد Access Token تلقائيًا...")
-
-    try:
-        r = requests.get(
-            "https://graph.instagram.com/refresh_access_token",
-            params={
-                "grant_type": "ig_refresh_token",
-                "access_token": IG_ACCESS_TOKEN,
-            },
-            timeout=60,
-        )
-
-        if r.status_code != 200:
-            print(
-                f"❌ Instagram Refresh Error: {r.status_code} - {r.text[:500]}"
-            )
-            return
-
-        new_token = r.json().get("access_token")
-        if not new_token:
-            print("❌ Instagram Refresh: لم يتم استلام توكن جديد من Meta.")
-            return
-
-        if update_github_secret("IG_ACCESS_TOKEN", new_token):
-            IG_ACCESS_TOKEN = new_token
-            with open(IG_REFRESH_FILE, "w", encoding="utf-8") as f:
-                f.write(str(now))
-            print(
-                "✅ Instagram: تم تجديد التوكن وتحديثه تلقائيًا لمدة 60 يومًا جديدة."
-            )
-
-    except Exception as e:
-        print(f"⚠️ Instagram Refresh Connection Error: {e}")
 
 
 # =========================================================
@@ -1165,10 +1290,6 @@ def post_to_instagram(
     # -----------------------------------------------------
 
     if album_items:
-        # Instagram Carousel: نستخدم أول 20 عنصرًا من
-        # الاختيار المركزي (نفس MAX_ALBUM_ITEMS). تم رفع
-        # الحد بعد التحقق الفعلي من حساب المشروع أنه يقبل
-        # 20 عنصرًا في المنشور الواحد.
         ig_items = album_items[:MAX_ALBUM_ITEMS]
 
         if len(album_items) > MAX_ALBUM_ITEMS:
@@ -1322,8 +1443,6 @@ def post_to_instagram(
             )
             return False
 
-        # فحص حاسم: عدد الـchildren يجب أن يساوي عدد
-        # العناصر المختارة - وإلا لا نشر ولا History.
         if len(creation_ids) != len(ig_items):
             print(
                 f"❌ Instagram Carousel: عدد العناصر "
@@ -1667,9 +1786,6 @@ def test_threads_token():
     """
     فحص Threads Access Token واستخراج Threads User ID
     من /me تلقائيًا.
-
-    إذا كان THREADS_USER_ID موجودًا في Secrets،
-    سيتم استبداله بالـ ID الحقيقي الذي يرجعه التوكن.
     """
     global THREADS_USER_ID
 
@@ -1780,7 +1896,6 @@ def post_to_threads(
     # -----------------------------------------------------
 
     if album_items:
-        # Threads API: الحد الأقصى 20 عنصرًا في المنشور.
         th_items = album_items[:20]
 
         creation_ids = []
@@ -1927,8 +2042,6 @@ def post_to_threads(
             )
             return False
 
-        # فحص حاسم: عدد الـchildren يجب أن يساوي عدد
-        # العناصر المختارة - وإلا لا نشر ولا History.
         if len(creation_ids) != len(th_items):
             print(
                 f"❌ Threads Carousel: عدد العناصر "
@@ -2088,7 +2201,6 @@ def post_to_threads(
         f"للـ {media_type}..."
     )
 
-    # نستخدم /me حتى يكون الـ ID المرتبط بالتوكن هو المعتمد.
     r = threads_request(
         "POST",
         "me/threads",
@@ -2125,11 +2237,6 @@ def post_to_threads(
         f"🆔 Threads Container: "
         f"{creation_id}"
     )
-
-    # -----------------------------------------------------
-    # انتظار معالجة الفيديو.
-    # الصورة عادة تكون جاهزة بسرعة، لكن نفحصها أيضًا.
-    # -----------------------------------------------------
 
     max_checks = 60 if media_type == "video" else 10
 
@@ -2187,8 +2294,6 @@ def post_to_threads(
             )
             return False
 
-        # بعض إصدارات API لا ترجع status للصورة.
-        # إذا كانت الاستجابة ناجحة ولا يوجد status، نحاول النشر.
         if (
             media_type == "photo"
             and not status_value
@@ -2328,14 +2433,25 @@ def main():
         return
 
     # -----------------------------------------------------
+    # تجديد التوكنات التلقائي كل 45 يوماً (Instagram & Threads)
+    # -----------------------------------------------------
+
+    refresh_instagram_token_if_needed()
+    refresh_threads_token_if_needed()
+
+    # -----------------------------------------------------
+    # فحص Facebook
+    # -----------------------------------------------------
+
+    check_facebook_token()
+
+    # -----------------------------------------------------
     # فحص Instagram
     # -----------------------------------------------------
 
     instagram_ready = test_instagram_token()
 
-    if instagram_ready:
-        refresh_instagram_token_if_needed()
-    else:
+    if not instagram_ready:
         print(
             "⚠️ Instagram: "
             "فشل فحص Token."
@@ -2382,7 +2498,7 @@ def main():
             )
             return
 
-        # الأقدم أولًا ضمن آخر 5
+        # الأقدم أولًا ضمن آخر 10
         for msg_id, item in items:
             sig = msg_id.strip()
 
@@ -2407,10 +2523,6 @@ def main():
             album = None
 
             if not post and is_album(item):
-                # -------------------------------------------------
-                # Album: استخراج مركزي للعناصر قبل النشر
-                # -------------------------------------------------
-
                 album = parse_album(sig, item)
 
             # -------------------------------------------------
@@ -2455,12 +2567,6 @@ def main():
                     for i, album_item in enumerate(
                         album["items"]
                     ):
-                        # Facebook يحتاج ملفات محلية.
-                        # Instagram وThreads يستخدمان "
-                        # URL العام مباشرة (نفس السلوك "
-                        # الحالي للمنشورات المنفردة).
-                        # التنزيل يتم مرة واحدة فقط "
-                        # لجميع المنصات.
                         temp_path = download_media(
                             album_item["url"],
                             album_item["type"],
@@ -2638,7 +2744,6 @@ def main():
                     f"{sig}: {e}"
                 )
 
-                # cleanup يصل حتى عند حدوث Exception
                 for temp_path in temp_paths:
                     remove_temp_file(temp_path)
 
