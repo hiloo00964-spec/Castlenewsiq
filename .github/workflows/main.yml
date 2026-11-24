@@ -51,7 +51,7 @@ jobs:
           THREADS_USER_ID: ${{ secrets.THREADS_USER_ID }}
           THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
 
-          # GitHub Secrets Auto-Update
+          # GitHub Secrets Auto-Refresh
           GH_PAT: ${{ secrets.GH_PAT }}
 
           # التشغيل اليدوي يتجاوز ساعات العمل.
@@ -76,6 +76,10 @@ jobs:
 
           if [ -f .ig_token_refresh ]; then
             git add .ig_token_refresh
+          fi
+
+          if [ -f .threads_token_refresh ]; then
+            git add .threads_token_refresh
           fi
 
           git diff --cached --quiet || git commit -m "Update news history"
