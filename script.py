@@ -1,6 +1,7 @@
 import os
 import re
 import html
+import base64
 import requests
 import time
 from datetime import datetime
@@ -15,6 +16,10 @@ FB_PAGE_TOKEN = os.getenv("FB_TOKEN")
 IG_USER_ID = os.getenv("IG_USER_ID")
 IG_ACCESS_TOKEN = os.getenv("IG_ACCESS_TOKEN")
 
+# GitHub Secrets Auto-Update
+GH_PAT = os.getenv("GH_PAT")
+GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY")
+
 # Threads
 THREADS_USER_ID = os.getenv("THREADS_USER_ID")
 THREADS_ACCESS_TOKEN = os.getenv("THREADS_ACCESS_TOKEN")
@@ -23,6 +28,7 @@ DB_FILE = "last_news_id.txt"
 IG_DB_FILE = "last_instagram_id.txt"
 THREADS_DB_FILE = "last_threads_id.txt"
 RESET_FILE = ".news_history_reset"
+IG_REFRESH_FILE = ".ig_token_refresh"
 
 SOURCE_CHANNEL = "Castlenewsiq"
 
@@ -37,6 +43,9 @@ POST_DELAY_SECONDS = 10
 
 # تصفير السجل كل 48 ساعة
 HISTORY_RESET_SECONDS = 7 * 24 * 60 * 60
+
+# تجديد توكن Instagram تلقائيًا كل 45 يومًا
+IG_REFRESH_INTERVAL_SECONDS = 45 * 24 * 60 * 60
 
 TEMP_MEDIA_DIR = "tmp_media"
 
@@ -884,6 +893,131 @@ def post_album_to_facebook(
             f"⚠️ FB Album Connection Error: {e}"
         )
         return False
+
+
+# =========================================================
+# تجديد توكن Instagram وحفظه تلقائيًا في GitHub Secrets
+# =========================================================
+
+def update_github_secret(secret_name, secret_value):
+    """
+    تشفير وحفظ التوكن الجديد مباشرة داخل GitHub Actions Secrets.
+    """
+    if not GH_PAT or not GITHUB_REPOSITORY:
+        print(
+            "⚠️ Auto-Refresh: GH_PAT أو GITHUB_REPOSITORY غير متوفر لحفظ التوكن في Secrets."
+        )
+        return False
+
+    try:
+        from nacl import encoding, public
+    except ImportError:
+        print(
+            "⚠️ Auto-Refresh: مكتبة PyNaCl غير مثبتة (أضف PyNaCl إلى requirements.txt)."
+        )
+        return False
+
+    headers = {
+        "Authorization": f"Bearer {GH_PAT}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    try:
+        key_url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/public-key"
+        key_res = requests.get(key_url, headers=headers, timeout=30)
+        if key_res.status_code != 200:
+            print(
+                f"❌ GitHub Public Key Error: {key_res.status_code} - {key_res.text[:300]}"
+            )
+            return False
+
+        key_data = key_res.json()
+        public_key = public.PublicKey(
+            key_data["key"].encode("utf-8"),
+            encoding.Base64Encoder(),
+        )
+        sealed_box = public.SealedBox(public_key)
+        encrypted = sealed_box.encrypt(secret_value.encode("utf-8"))
+        encrypted_value = base64.b64encode(encrypted).decode("utf-8")
+
+        put_url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/{secret_name}"
+        put_res = requests.put(
+            put_url,
+            headers=headers,
+            json={
+                "encrypted_value": encrypted_value,
+                "key_id": key_data["key_id"],
+            },
+            timeout=30,
+        )
+
+        if put_res.status_code in (201, 204):
+            print(f"🔐 GitHub Secrets: تم تحديث {secret_name} بنجاح.")
+            return True
+
+        print(
+            f"❌ GitHub Secret Update Error: {put_res.status_code} - {put_res.text[:300]}"
+        )
+        return False
+
+    except Exception as e:
+        print(f"⚠️ GitHub Secret Connection Error: {e}")
+        return False
+
+
+def refresh_instagram_token_if_needed():
+    """
+    تجديد IG_ACCESS_TOKEN تلقائيًا كل 45 يومًا قبل انتهاء صلاحيته (60 يومًا).
+    """
+    global IG_ACCESS_TOKEN
+
+    if not IG_ACCESS_TOKEN:
+        return
+
+    now = time.time()
+    try:
+        with open(IG_REFRESH_FILE, "r", encoding="utf-8") as f:
+            last_refresh = float(f.read().strip())
+    except (FileNotFoundError, ValueError):
+        last_refresh = 0
+
+    if now - last_refresh < IG_REFRESH_INTERVAL_SECONDS:
+        return
+
+    print("🔄 Instagram: حان موعد تجديد Access Token تلقائيًا...")
+
+    try:
+        r = requests.get(
+            "https://graph.instagram.com/refresh_access_token",
+            params={
+                "grant_type": "ig_refresh_token",
+                "access_token": IG_ACCESS_TOKEN,
+            },
+            timeout=60,
+        )
+
+        if r.status_code != 200:
+            print(
+                f"❌ Instagram Refresh Error: {r.status_code} - {r.text[:500]}"
+            )
+            return
+
+        new_token = r.json().get("access_token")
+        if not new_token:
+            print("❌ Instagram Refresh: لم يتم استلام توكن جديد من Meta.")
+            return
+
+        if update_github_secret("IG_ACCESS_TOKEN", new_token):
+            IG_ACCESS_TOKEN = new_token
+            with open(IG_REFRESH_FILE, "w", encoding="utf-8") as f:
+                f.write(str(now))
+            print(
+                "✅ Instagram: تم تجديد التوكن وتحديثه تلقائيًا لمدة 60 يومًا جديدة."
+            )
+
+    except Exception as e:
+        print(f"⚠️ Instagram Refresh Connection Error: {e}")
 
 
 # =========================================================
@@ -2199,7 +2333,9 @@ def main():
 
     instagram_ready = test_instagram_token()
 
-    if not instagram_ready:
+    if instagram_ready:
+        refresh_instagram_token_if_needed()
+    else:
         print(
             "⚠️ Instagram: "
             "فشل فحص Token."
